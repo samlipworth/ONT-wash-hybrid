@@ -1,0 +1,383 @@
+
+Comparison of different demultiplexing/filtering options:
+
+```{r assembly comparison, eval=FALSE, error=FALSE, echo=FALSE}
+
+guppy<-read_tsv('./data/guppy.tsv')
+guppy_deep<-read_tsv('./data/guppy_deepbinner.tsv')
+filt<-read_tsv('./data/filtlong.tsv')
+rasusa<-read_tsv('./data/rasusa_150.tsv')
+
+guppy$which<-'guppy'
+guppy$complete<-ifelse(guppy$`True Contigs`==guppy$`Circular Contigs`,'yes','no')
+guppy<-filter(guppy,Bold =='bold')
+guppy$plasmids<-guppy$`True Contigs`-1
+guppy<-select(guppy,Library,RBK,complete,which,`N incomplete Plasmids`,plasmids,`N contigs`,`Circular Contigs`)
+
+
+
+guppy_deep$which<-'guppy_deep'
+guppy_deep$complete<-ifelse(guppy_deep$`True Contigs`==guppy_deep$`Circular Contigs`,'yes','no')
+guppy_deep$plasmids<-guppy_deep$`True Contigs`-1
+guppy_deep<-filter(guppy_deep,Bold=='yes')
+guppy_deep<-select(guppy_deep,Library,RBK,complete,which,`N incomplete Plasmids`,plasmids,`N contigs`,`Circular Contigs`)
+
+
+filt$which<-'filt'
+filt$complete<-ifelse(filt$`True Contigs`==filt$`Circular Contigs`,'yes','no')
+filt$plasmids<-filt$`True Contigs`-1
+filt<-select(filt,Library,RBK,complete,which,`N incomplete Plasmids`,plasmids,`N contigs`,`Circular Contigs`)
+
+
+rasusa$which<-'rasusa'
+rasusa$complete<-ifelse(rasusa$`True Contigs`==rasusa$`Circular Contigs`,'yes','no')
+rasusa$plasmids<-rasusa$`True Contigs`-1
+rasusa<-select(rasusa,Library,RBK,complete,which,`N incomplete Plasmids`,plasmids,`N contigs`,`Circular Contigs`)
+
+
+all<-rbind(guppy,guppy_deep,filt,rasusa)
+all$isolate<-paste(all$Library,all$RBK,sep = '_')
+all<-filter(all,isolate != '1_10')
+t<-table(all$complete,all$which)
+
+t
+
+all %>% group_by(which) %>% summarise(t=sum(`N contigs`),m=sum(`Circular Contigs`))
+#bold comparison
+guppy<-read_tsv('./data/guppy.tsv')
+guppy_deep<-read_tsv('./data/guppy_deepbinner.tsv')
+
+guppy$which<-'guppy'
+guppy$complete<-ifelse(guppy$`True Contigs`==guppy$`Circular Contigs`,'yes','no')
+guppy_deep$which<-'guppy_deep'
+guppy_deep$complete<-ifelse(guppy_deep$`True Contigs`==guppy_deep$`Circular Contigs`,'yes','no')
+
+#guppy<-filter(guppy,Library!=4)
+#guppy_deep<-filter(guppy_deep,Library!=4)
+
+all<-rbind(guppy,guppy_deep)
+all$Bold<-ifelse(all$Bold=='no','normal',ifelse(all$Bold=='yes','bold',all$Bold))
+all$isolate<-paste(all$Library,all$RBK,sep = '_')
+all<-filter(all,isolate != '1_10')
+
+all_g<-filter(all,which=='guppy')
+all_gd<-filter(all,which=='guppy_deep')
+t<-table(all_g$complete,all_g$Bold)
+t<-table(all_gd$complete,all_gd$Bold)
+chisq.test(t)
+
+```
+
+```{Figure S1}
+
+source('~/gn/Nanopore_wash_validation/scripts/libraries.R')
+
+
+output_time<-read_csv('./data/output_time.csv')
+
+output_time %>% group_by(time) %>% summarise(m=median(bases)/1e6,min=min(bases)/1e6,max=max(bases)/1e6)
+
+ggplot(data= output_time) +
+  aes(x=time, y=log10(bases), color=Barcode) +
+  geom_line() + xlab('time (hours)') 
+```
+
+
+```{Figure S4}
+source('~/gn/Nanopore_wash/scripts/libraries.R')
+
+
+before<-read_tsv('./data/read_stats/recycle2.tsv')
+before$which<-'before'
+
+after<-read_tsv('./data/read_stats/SL_scramble.tsv')
+after$which<-'after'
+
+last<-read_tsv('./data/read_stats/recycle3.tsv')
+last$which<-'last'
+
+periodicity<-function(data){
+  data$time<-str_replace(data$time,'start_time=','')
+  data$time<-str_replace(data$time,'T',' ')
+  data$time<-str_replace(data$time,'Z',' ')
+  data$time<-ymd_hms(data$time)
+  start_time<-min(data$time)
+  
+  end_time<-max(data$time)
+  six_hours<-start_time + hours(6)
+  twelve_hours<-start_time + hours(12)
+  eighteen_hours<-start_time + hours(18)
+  twenty_four_hours<-start_time + hours(24)
+  thirty_hours<-start_time + hours(30)
+  thirty_six_hours<-start_time + hours(36)
+  fourty_two_hours<-start_time + hours(42)
+  data$period<-ifelse(data$time < six_hours,6,NA)
+  data$period<-ifelse(data$time < twelve_hours & data$time >= six_hours, 12,data$period)
+  data$period<-ifelse(data$time < eighteen_hours & data$time >= twelve_hours,18,data$period)
+  data$period<-ifelse(data$time < twenty_four_hours & data$time >= eighteen_hours,24,data$period)
+  data$period<-ifelse(data$time < thirty_hours & data$time >= twenty_four_hours,30,data$period)
+  data$period<-ifelse(data$time < thirty_six_hours & data$time >= thirty_hours,36,data$period)
+  data$period<-ifelse(data$time < fourty_two_hours & data$time >= thirty_six_hours,42,data$period)
+  data$period<-ifelse(data$time >= fourty_two_hours,48,data$period)
+  return(data)
+}
+
+
+before<-periodicity(before)
+after<-periodicity(after)
+last<-periodicity(last)
+
+read_length<-rbind(before,after,last)
+read_length$period<-as.factor(read_length$period)
+read_length$which<-ifelse(read_length$which=='before','library 3',ifelse(read_length$which =='after','library 4','library 5'))
+par(mfrow=c(1,2))
+quality<-ggplot(read_length, aes(x=period, y=quality)) + geom_violin() + facet_wrap(~which) +theme_minimal() + xlab('Period') + ylab('Quality') + theme_light()
+length<-ggplot(read_length, aes(x=period, y=log10(length))) + geom_violin() + facet_wrap(~which) +theme_minimal() +xlab('Period') + ylab('Log bases per read') + theme_light()
+
+grid.arrange(quality,length,ncol=2)
+library(patchwork)
+quality + length
+
+#table<-read_length %>% group_by(period,which) %>% summarise(period_length=median(length),period_qual=median(quality))
+#names(table)<-c('Hours','Library','Median Length','Median Quality')
+#table %>% kable() %>% kable_styling(bootstrap_options = c("condensed"),full_width = F)
+
+#ggplot(data=read_length) +
+ # aes(x=sample,y=log(length)) +
+ # geom_violin()
+
+#ggplot(data=read_length) +
+#  aes(x=sample,y=quality) +
+#  geom_violin()
+
+#recycle3<-read_tsv('data/read_stats/recycle3.tsv')
+#recycle3<-periodicity(recycle3)
+
+read_length %>% group_by(period,which) %>% summarise(med=median(quality),q1=quantile(quality,probs = 0.25),q2=quantile(quality,probs=0.75))
+read_length %>% group_by(period,which) %>% summarise(med=median(length),q1=quantile(length,probs = 0.25),q2=quantile(length,probs=0.75))
+
+#recycle3 %>% group_by(period) %>% summarise(med=median(quality))
+```
+
+
+
+
+```{Figure S5}
+
+easy_unmapped<-read.delim('./data/junk_cov/easymag_unmapped_cov',sep='\t',header=F)
+easy_chromo<-read.delim('./data/junk_cov/easymag_chromo_cov',sep='\t',header=F)
+
+r2_unmapped<-read.delim('./data/junk_cov/r2_unmapped_cov',sep='\t',header=F)
+r2_chromo<-read.delim('./data/junk_cov/r2_chromo_cov',sep='\t',header=F)
+r2_unmapped_median_length<-median(r2_unmapped$V3)
+r2_unmapped_max_length<-max(r2_unmapped$V3)
+r2_unmapped_min_length<-min(r2_unmapped$V3)
+r2_unmapped_n<-unique(r2_unmapped$V1)
+
+r3_unmapped<-read.delim('./data/junk_cov/r3_unmapped_cov',sep='\t',header=F)
+r3_chromo<-read.delim('./data/junk_cov/r3_chromo_cov',sep='\t',header=F)
+r3_unmapped_median_length<-median(r3_unmapped$V3)
+r3_unmapped_max_length<-max(r3_unmapped$V3)
+r3_unmapped_min_length<-min(r3_unmapped$V3)
+r3_unmapped_n<-unique(r3_unmapped$V1)
+
+
+SLS_unmapped<-read.delim('./data/junk_cov/SLS_unmapped_cov',sep='\t',header=F)
+SLS_chromo<-read.delim('./data/junk_cov/SLS_chromo_cov',sep='\t',header=F)
+SLS_unmapped_median_length<-median(SLS_unmapped$V3)
+SLS_unmapped_max_length<-max(SLS_unmapped$V3)
+SLS_unmapped_min_length<-min(SLS_unmapped$V3)
+
+worm_unmapped<-read.delim('./data/junk_cov/worm_unmapped_cov',sep='\t',header=F)
+worm_chromo<-read.delim('./data/junk_cov/worm_chromo_cov',sep='\t',header=F)
+worm_unmapped_n<-unique(worm_unmapped$V1)
+
+easy_med_un<-median(easy_umapped$V3)
+easy_med_ch<-median(easy_chromo$V3)
+easy_ratio<-easy_med_un/easy_med_ch
+easy_unmapped_n<-unique(easy_umapped$V1)
+
+r2_med_un<-median(r2_unmapped$V3)
+r2_med_ch<-median(r2_chromo$V3)
+r2_ratio<-r2_med_un/r2_med_ch
+
+r3_med_un<-median(r3_unmapped$V3)
+r3_med_ch<-median(r3_chromo$V3)
+r3_ratio<-r3_med_un/r3_med_ch
+
+SLS_med_un<-median(SLS_unmapped$V3)
+SLS_med_ch<-median(SLS_chromo$V3)
+SLS_ratio<-SLS_med_un/SLS_med_ch
+
+worm_med_un<-median(worm_unmapped$V3)
+worm_med_ch<-median(worm_chromo$V4)
+worm_ratio<-worm_med_un/worm_med_ch
+
+worm_unmapped<-select(worm_unmapped,V1,V2,V3,V4)
+worm_unmapped$library<-2
+
+r2_unmapped<-select(r2_unmapped,V1,V2,V3,V4)
+r2_unmapped$library<-3
+
+r3_unmapped<-select(r3_unmapped,V1,V2,V3,V4)
+r3_unmapped$library<-5
+
+easy_unmapped<-select(easy_unmapped,V1,V2,V3,V4)
+easy_unmapped$library<-1
+
+all_unmapped<-rbind(r2_unmapped,r3_unmapped,worm_unmapped,easy_unmapped)
+names(all_unmapped)<-c('barcode','contig','length','coverage','library')
+```
+
+
+
+```{r LRO}
+
+em_gd_unmapped<-read.delim('./data/junk_cov/easymag_gd_unmapped',header = F,sep='\t')
+em_gd_unmapped$which<-'library 1'
+em_unmapped<-read.delim('./data/junk_cov/easymag_unmapped_cov',header=F,sep='\t')
+em_unmapped$which<-'library 1'
+em_gd_unmapped<-filter(em_gd_unmapped,V1 != 'barcode10')
+em_unmapped<-filter(em_unmapped,V1 != 'BC10')
+
+r2_gd_unmapped<-read.delim('./data/junk_cov/r2_gd_unmapped',header = F,sep='\t')
+r2_gd_unmapped$which<-'library 3'
+r2_unmapped<-read.delim('./data/junk_cov/bc_r2_unmapped_contigs',header = F,sep='\t')
+r2_unmapped$which<-'library 3'
+
+r3_unmapped<-read.delim('./data/junk_cov/bc_r3_unmapped_contigs',header = F,sep='\t')
+r3_unmapped$which<-'library 5'
+#nb there are no r3 gd unmapped contigs
+
+worm_gd_unmapped<-read.delim('./data/junk_cov/worm_gd_unmapped',header=F,sep='\t')
+worm_gd_unmapped$which<-'library 2'
+worm_unmapped<-read.delim('./data/junk_cov/bc_worm_unmapped_contigs',header=F,sep='\t')
+worm_unmapped$which<-'library 2'
+
+barcodes<-c('barcode01','barcode02','barcode03','barcode04','barcode05','barcode06','barcode07','barcode08','barcode09','barcode10','barcode11','barcode12')
+BCS<-c('bc01','bc02','bc03','bc04','bc05','bc06','bc07','bc08','bc09','bc10','bc11','bc12')
+all_gd_unmapped<-rbind(em_gd_unmapped,r2_gd_unmapped,worm_gd_unmapped)
+all_unmapped<-rbind(em_unmapped,r2_unmapped,r3_unmapped,worm_unmapped)
+
+
+a<-ggplot(data=all_unmapped) +
+  aes(x=which,y=V4,color=log10(V3)) + 
+  geom_violin() + geom_point() + geom_jitter() + theme_light() + xlab('Library') + ylab('Coverage') + labs(color="log10 contig size") + scale_color_continuous(low='green',high='red')
+
+b<-ggplot(data=all_gd_unmapped) +
+  aes(x=which,y=V4, color=log10(V3)) +
+  geom_violin() + geom_point() + geom_jitter() + theme_light() + xlab('Library') + ylab('Coverage') + labs(color="log10 contig size") +
+  scale_color_continuous(low='green',high='red')
+library(patchwork)
+a + b
+all_unmapped$truth<-'unmapped'
+all_gd_unmapped$truth<-'unmapped'
+
+true_easymag<-read.delim('./data/junk_cov/bc_easy_mapped',sep='\t',header=F)
+true_easymag$which<-'library1'
+true_r2<-read.delim('./data/junk_cov/bc_r2_mapped',sep='\t',header=F)
+true_r2$which<-'library2'
+true_r3<-read.delim('./data/junk_cov/bc_r3_mapped',sep='\t',header=F)
+true_r3$which<-'library5'
+true_worm<-read.delim('./data/junk_cov/bc_worm_mapped',sep='\t',header=F)
+true_worm$which<-'library2'
+
+all_true<-rbind(true_easymag,true_r2,true_r3,true_worm)
+all_true$truth<-'true'
+
+all_unmapped2<-select(all_unmapped,-V1)
+names(all_unmapped2)<-c("V1","V2", "V3","V4","V5","V6","V7", "which","truth")
+all_unmapped_true<-rbind(all_unmapped2,all_true)
+
+
+c<-ggplot(data=all_unmapped_true) +
+  aes(x=V2,y=V3, color=truth) +
+   geom_point() + geom_jitter() + theme_light() + xlab('Contig Size') + ylab('Coverage') + labs(color="Contig Type") 
+
+true<-filter(all_unmapped_true, truth=='true')
+false<-filter(all_unmapped_true, truth=='unmapped')
+
+t<-ggplot(data=true) +
+  aes(x=V2,y=V3,color=truth) +
+   geom_point(show.legend = F) + geom_jitter(show.legend = F) + theme_light() + xlab('Contig Size') + ylab('Coverage') + labs(color="Contig Type") + scale_color_manual(values=c("#5A4ED9"))
+
+f<-ggplot(data=false) +
+  aes(x=V2,y=V3,color=truth) +
+   geom_point(show.legend = F) + geom_jitter(show.legend = F) + theme_light() + xlab('Contig Size') + ylab('Coverage') + labs(color="Contig Type") + scale_color_manual(values=c("#F51818"))
+
+
+p<-t/a | f/b
+p + plot_annotation(tag_levels = 'A')
+BCS<-unique(all_unmapped$V1)
+libraries<-c('library 1','library 2','library 3','library 5')
+
+out=NULL
+for(i in BCS){
+  for(l in libraries){
+    
+    n_contigs<-filter(all_unmapped,V1==i)
+    n_contigs<-filter(n_contigs,which==l)
+    n_contigs<-nrow(n_contigs)
+    out=rbind(out,data.frame(l,i,n_contigs))
+  }
+}
+out$sample<-paste(out$l,out$i,sep = '_')
+out<-filter(out, sample!='library 1_bc03' & sample!='library 1_bc12') # don't exist
+out<-filter(out, sample!='library 1_bc10') # exclude
+
+median(out$n_contigs) # median number unmapped contigs
+min(out$n_contigs)
+max(out$n_contigs)
+median(all_unmapped$V3) # median length unmapped contigs
+min(all_unmapped$V3)
+max(all_unmapped$V3)
+
+median(all_unmapped$V4) # median coverage unmapped
+min(all_unmapped$V4)
+max(all_unmapped$V4)
+```
+
+```{r Table S2}
+library(tidyverse)
+worm<-read_tsv('./data/crumpit/worm')
+worm<-filter(worm,hunam_reads > 0)
+worm<-filter(worm,barcode !='unclassified')
+sum(worm$total_reads)
+sum(worm$total_bases)/1e6
+sum(worm$hunam_reads)
+sum(worm$hunam_reads)/sum(worm$total_reads) *100
+
+worm_original<-read_tsv('./data/crumpit/F47676')
+sum(worm_original$hunam_reads)
+sum(worm_original$total_reads,na.rm = T)
+sum(worm_original$hunam_reads)/sum(worm_original$total_reads,na.rm = T) *100
+
+recycle2<-read_tsv('./data/crumpit/recycle2')
+recycle2<-filter(recycle2,hunam_reads > 0)
+recycle2<-filter(recycle2,barcode !='unclassified')
+
+recycle3<-read_tsv('./data/crumpit/recycle3')
+recycle3<-filter(recycle3,hunam_reads > 0)
+recycle3<-filter(recycle3,barcode !='unclassified')
+
+easymag<-read_tsv('./data/crumpit/easymag')
+easymag<-filter(easymag,hunam_reads > 0)
+easymag<-filter(easymag,barcode !='unclassified')
+
+scramble<-read_tsv('./data/crumpit/SL_scramble')
+scramble<-filter(scramble,hunam_reads > 0)
+scramble<-filter(scramble,barcode !='unclassified')
+
+worm$which<-'worm'
+recycle2$which<-'recycle2'
+recycle3$which<-'recycle3'
+easymag$which<-'easymag'
+scramble$which<-'scramble'
+
+all<-rbind(worm,recycle2,recycle3,easymag,scramble)
+
+all$pc_human<-all$hunam_reads/all$total_reads
+kruskal.test(pc_human ~ which,data=all)
+
+t<-all %>% group_by(which) %>% summarise(h=sum(hunam_reads),t=sum(total_reads),pc=median(pc_human)*100,min=min(pc_human)*100,max=max(pc_human) *100)
+```

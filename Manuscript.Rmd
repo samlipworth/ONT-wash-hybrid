@@ -1,0 +1,432 @@
+
+```{r Figure1, fig.cap="\\label{fig:Figure1}Completeness (here defined as all contigs being identified by Unicycler as being circular) of all ten barcoded samples in the first library over time. Mode refers to the --mode option for Unicycler, which we compared on both bold and normal settings.", echo=FALSE,error=FALSE,message=FALSE,warning=FALSE, fig.show='hold'}
+
+source('~/gn/Nanopore_wash/scripts/libraries.R')
+
+
+data<-read_csv('./data/completeness_time.csv')
+x<-c("barcode","contigs","circular","true_contigs","hours")
+data<-select(data,x)
+data$complete<-ifelse(data$circular==data$contigs,'yes','no')
+data$complete<-as.factor(data$complete)
+
+data<-filter(data,barcode != 'bc10')
+ggplot(data, aes(x=hours,y=contigs,color=complete)) + geom_point() + facet_wrap(~ barcode) + scale_x_continuous(breaks = seq(0,48,6)) + xlab('Hours') + ylab('Contigs') + scale_color_discrete(name='Complete?') + theme_light()
+```
+
+
+
+```{r optimising run time, eval=FALSE, echo=FALSE,error=FALSE}
+source('~/gn/Nanopore_wash/scripts/libraries.R')
+
+data<-read_tsv('~/gn/Nanopore_wash/data/read_stats/easymag.tsv')
+data<-periodicity(data)
+
+table<-data %>% group_by(period) %>% summarise(period_length=median(length),period_qual=median(quality))
+names(table)<-c('Hours','Median Length','Median Quality')
+table %>% kable() %>% kable_styling(bootstrap_options = c("condensed"),full_width = F)
+
+
+
+
+start_time<-min(data$time)
+end_time<-max(data$time)
+
+data$elapsed<-data$time - start_time
+data$elapsed<-as.numeric(data$elapsed)
+data$elapsed<-data$elapsed/60
+data$elapsed<-data$elapsed/60
+data$elapsed<-round(data$elapsed)
+
+
+hours<-unique(data$elapsed)
+
+out=NULL
+for(h in hours){
+  data2<-filter(data, elapsed ==h)
+  tmp <- rev( sort(data2$length) )
+  tmp2 <- cumsum(tmp) <= sum(tmp)/2
+  N50<-tmp[ sum(tmp2) ]
+  out<-rbind(out,data.frame(h,N50))
+}
+  
+quality<-data %>% group_by(elapsed) %>% summarise(q=median(quality), lqr=quantile(quality,prob=0.25),uqr=quantile(quality,prob=0.75))
+data %>% group_by(elapsed) %>% quantile(quality)
+quality<-left_join(quality,out,by=c("elapsed"="h"))
+
+max(quality$q)
+min(quality$q)
+
+data$period<-as.factor(data$period)
+
+ggplot(data=data) +
+  aes(x=sample,y=log(length)) +
+  geom_violin()
+
+ggplot(data=data) +
+  aes(x=sample,y=quality) +
+  geom_violin()
+
+
+
+data<-read_csv('./data/completeness_time.csv')
+data<-filter(data,barcode != 'bc10')
+data$complete<-ifelse(data$circular==data$contigs,1,0)
+data$plasmids<-data$true_contigs-1
+
+hours<-unique(data$hours)
+barcodes<-c('bc01','bc02','bc04','bc05','bc06','bc07','bc08','bc09','bc11')
+out=NULL
+
+for(h in hours){
+  data_time_t<-filter(data, hours <= h)
+  for(b in barcodes){
+    b_data_time_t<-filter(data_time_t,barcode==b)
+    chromosome_complete<-ifelse('yes' %in% b_data_time_t$`chromosome complete`,'yes','no')
+    complete<-ifelse(1 %in% b_data_time_t$complete,'yes','no')
+    incomplete_plasmids<-min(b_data_time_t$`incomplete plasmids`)
+    circular_contigs<-max(b_data_time_t$circular)
+    all_contigs<-max(b_data_time_t$true_contigs)
+  
+    out<-rbind(out,data.frame(h,b,chromosome_complete,complete,incomplete_plasmids,circular_contigs,all_contigs))
+  }
+}
+table(out$h,out$complete)
+out %>% group_by(h) %>% summarise(circular_contigs=sum(circular_contigs),all_contigs=sum(all_contigs),incomplete_plasmids=sum(incomplete_plasmids,na.rm = T))
+#names(data)<-c("barcode", "contigs","circular","true_contigs","hours","bases" ,"complete")
+complete<-filter(data,complete==1)
+unique(complete$barcode)
+tfh<-select(data,barcode,complete,bases,hours,complete)
+
+
+tfh<-distinct(tfh)
+tfh<-filter(tfh, hours ==24)
+tfh$complete[1]<-1
+#tfh$complete[3]<-1
+  
+wilcox.test(tfh$bases ~ tfh$complete)
+
+
+```
+```{r Figure 3}
+
+
+data<-read.delim('./data/time_eval/easy_time/bc_all_stats',sep=' ',header = F)
+names(data)<-c('likelihood','contigs','assembly_size','total_read','mapped_reads','sample','hours')
+#data<-read_tsv('./data/ALE/time_comparison.tsv')
+
+#likelihood difference vs 48 hours
+
+samples<-unique(data$sample)
+samples<-samples[samples != 'bc10']
+
+
+out=NULL
+for(t in samples){
+  reference<-filter(data, sample ==t) %>% arrange(hours) %>% tail(1)
+  reference<-reference$likelihood
+  sample_data<-filter(data,sample ==t)
+  sample_data$likelihood_diff<- sample_data$likelihood - reference
+  out<-rbind(out,sample_data)
+}
+#out$hours<-as.factor(out$hours)
+out$sample<-str_replace_all(out$sample,'[.]ale','')
+out<-filter(out,hours<48 & hours > 3)
+
+names(out)<-c("likelihood","contigs","assembly_size","total_read","mapped_reads","Barcode","hours","likelihood_diff")
+out$hours<-as.factor(out$hours)
+plot<-ggplot(data= out) +
+  aes( x=hours,y=likelihood_diff, color=Barcode, group=Barcode) +
+  geom_line() + ylab('Likelihood difference vs 48 hours') + xlab('Hours')   +
+  coord_cartesian(ylim=c(-2e5,6e5)) + theme_light()
+  #annotate("segment",x=50,xend=50,y=0,yend=2e5,arrow=arrow(),color='blue') + 
+  #annotate("segment", x=50,xend=50,y=0,yend=-2e5,arrow=arrow(),color='red') 
+
+jpeg('time_easymag.jpeg',width=1000,height = 1000)
+dev.off()
+```
+
+
+```{r human read depletion}
+
+worm_original<-read_tsv('./data/crumpit/F47676')
+sum(worm_original$hunam_reads)
+sum(worm_original$total_reads,na.rm = T)
+sum(worm_original$hunam_reads)/sum(worm_original$total_reads,na.rm = T) *100
+
+worm<-read_tsv('./data/crumpit/worm')
+worm<-filter(worm,hunam_reads > 0)
+worm<-filter(worm,barcode !='unclassified')
+sum(worm$total_reads)
+sum(worm$total_bases)/1e6
+sum(worm$hunam_reads)
+sum(worm$hunam_reads)/sum(worm$total_reads) *100
+```
+
+
+
+
+```{r similar isolates,eval=TRUE,error=FALSE,echo=FALSE, warning=FALSE,message=FALSE,fig.cap=table_captions("dnadiff","Table 1")}
+
+source('~/gn/Nanopore_wash/scripts/libraries.R')
+
+contiguity<-read_csv('./data/guppy_deepbinner.csv')
+contiguity$complete<-ifelse(contiguity$`N contigs`==contiguity$`Circular Contigs`,1,0)
+
+
+data<-read_tsv('./data/dnadiff_report')
+data$condition<-ifelse(is.na(data$condition),'bold',data$condition)
+
+data$isolate<-str_replace_all(data$sample,'BC','')
+data$isolate<-str_replace_all(data$isolate,'bc','')
+data$mode<-ifelse(data$condition =='nb' | data$condition =='not_bold','normal','bold')
+data$multiplexing<-ifelse(grepl('BC',data$sample),'guppy','guppy + deepbinner')
+data$filtering<-ifelse(data$condition=='filt','Filtlong','None')
+data$filtering<-ifelse(data$condition == '150M','Random Subsampling',data$filtering)
+data$barcode<-str_replace_all(data$isolate, 'bc','')
+mlst<-read_tsv('./data/library3_mlst')
+data<-left_join(data,mlst,by=c("barcode"="barcode"))
+data$barcode<-as.numeric(data$barcode)
+names(data)<-c("gsnps", "gindels","aident","tb", "ab", "sample", "condition", "isolate", "mode", "multiplexing", "filtering", "Barcode library 3", "Species", "MLST" )
+data<-filter(data,mode=='bold')
+data<-filter(data,multiplexing=='guppy + deepbinner')
+data<-filter(data,filtering=='None')
+write_csv(data,'table1.csv')
+```
+
+
+```{r libraries 3 vs 4 ALE, eval=FALSE,echo=F, error=F}
+scramble<-read.delim('./data/ALE/SL_scramble_bc_stats',header = F,sep=' ')
+recycle2<-read.delim('./data/ALE/recycle2_bc_stats',header=F,sep=' ')
+scramble$which<-'scramble'
+recycle2$which<-'recycle'
+data<-rbind(scramble,recycle2)
+names(data)<-c('likelihood','ncontigs','size','reads','mapped','sample','which')
+
+samples<-unique(data$sample)
+out=NULL
+for(t in samples){
+  reference<-filter(data, sample ==t) %>% filter(which =='recycle')
+  reference<-reference$likelihood
+  sample_data<-filter(data,sample ==t)
+  sample_data$likelihood_diff<- sample_data$likelihood - reference
+  out<-rbind(out,sample_data)
+}
+out<-filter(out,which=='scramble')
+
+```
+
+
+```{r Washing effect on quality/length}
+source('~/gn/Nanopore_wash/scripts/libraries.R')
+
+
+before<-read_tsv('./data/read_stats/recycle2.tsv')
+before$which<-'before'
+
+after<-read_tsv('./data/read_stats/SL_scramble.tsv')
+after$which<-'after'
+
+last<-read_tsv('./data/read_stats/recycle3.tsv')
+last$which<-'last'
+
+periodicity<-function(data){
+  data$time<-str_replace(data$time,'start_time=','')
+  data$time<-str_replace(data$time,'T',' ')
+  data$time<-str_replace(data$time,'Z',' ')
+  data$time<-ymd_hms(data$time)
+  start_time<-min(data$time)
+  
+  end_time<-max(data$time)
+  six_hours<-start_time + hours(6)
+  twelve_hours<-start_time + hours(12)
+  eighteen_hours<-start_time + hours(18)
+  twenty_four_hours<-start_time + hours(24)
+  thirty_hours<-start_time + hours(30)
+  thirty_six_hours<-start_time + hours(36)
+  fourty_two_hours<-start_time + hours(42)
+  data$period<-ifelse(data$time < six_hours,6,NA)
+  data$period<-ifelse(data$time < twelve_hours & data$time >= six_hours, 12,data$period)
+  data$period<-ifelse(data$time < eighteen_hours & data$time >= twelve_hours,18,data$period)
+  data$period<-ifelse(data$time < twenty_four_hours & data$time >= eighteen_hours,24,data$period)
+  data$period<-ifelse(data$time < thirty_hours & data$time >= twenty_four_hours,30,data$period)
+  data$period<-ifelse(data$time < thirty_six_hours & data$time >= thirty_hours,36,data$period)
+  data$period<-ifelse(data$time < fourty_two_hours & data$time >= thirty_six_hours,42,data$period)
+  data$period<-ifelse(data$time >= fourty_two_hours,48,data$period)
+  return(data)
+}
+
+
+before<-periodicity(before)
+after<-periodicity(after)
+last<-periodicity(last)
+
+before%>% group_by(period) %>% summarise(q=median(quality), lqr=quantile(quality,prob=0.25),uqr=quantile(quality,prob=0.75))
+after%>% group_by(period) %>% summarise(q=median(quality), lqr=quantile(quality,prob=0.25),uqr=quantile(quality,prob=0.75))
+
+before%>% group_by(period) %>% summarise(q=median(length), lqr=quantile(length,prob=0.25),uqr=quantile(length,prob=0.75))
+after%>% group_by(period) %>% summarise(q=median(length), lqr=quantile(length,prob=0.25),uqr=quantile(length,prob=0.75))
+```
+
+
+```{r evaluating sequencing run-times using all data}
+
+worm<-read.delim('./data/time_eval/w_all',sep=' ',header=F)
+easy<-read.delim('./data/time_eval/e_all',sep=' ',header=F)
+easy<-filter(easy,V6 != 'bc10')
+r2<-read.delim('./data/time_eval/r2_all',sep=' ',header=F)
+r3<-read.delim('./data/time_eval/r3_all',sep=' ',header=F)
+
+data<-r3
+samples<-unique(data$V6)
+
+out=NULL
+for(t in samples){
+  reference<-filter(data, V6 ==t) %>% arrange(V7) %>% tail(1)
+  reference<-reference$V1
+  sample_data<-filter(data,V6 ==t)
+  sample_data$likelihood_diff<- sample_data$V1 - reference
+  out<-rbind(out,sample_data)
+}
+
+out_r2<-out
+out_r2$w<-'Library 3'
+out_r3<-out
+out_r3$w<-'Library 5'
+out_easy<-out
+out_easy$w<-'Library 1'
+out_worm<-out
+out_worm$w<-'Library 2'
+out_all<-rbind(out_r2,out_r3,out_easy,out_worm)
+ggplot(out_all,aes(x=V7,y=likelihood_diff,color=V6)) +geom_line() + facet_wrap(~w) +ylab('Likelihood difference vs 24 hours') + xlab('hours') + scale_x_continuous(breaks = c(3,6,12,24)) +labs(color='barcode') + coord_cartesian(ylim=c(-1e6,1e6))
+
+
+#######circularity
+
+h3<-read_csv('./data/time_eval/3h.csv')
+h6<-read_csv('./data/time_eval/6h.csv')
+h12<-read_csv('./data/time_eval/12h.csv')
+h_final<-read_csv('./data/time_eval/guppy_deepbinner.csv')
+h_final<-filter(h_final,Bold=='yes')
+h_final<-filter(h_final, Codename !='SL_scramble')
+
+h3$complete<-ifelse(h3$`True Contigs`==h3$`Circular Contigs`,1,0)
+h6$complete<-ifelse(h6$`True Contigs`==h6$`Circular Contigs`,1,0)
+h12$complete<-ifelse(h12$`True Contigs`==h12$`Circular Contigs`,1,0)
+h_final$complete<-ifelse(h_final$`True Contigs`==h_final$`Circular Contigs` & h_final$`N contigs` ==h_final$`True Contigs`,1,0)
+h12<-filter(h12,bold=='yes')
+x<-c("Codename","RBK","Bases","N contigs","Circular Contigs","True Contigs","Chromosome complete","N incomplete Plasmids","singular_plasmid","singular_chromosome","complete")   
+h12<-select(h12,x)
+h12$time<-12
+h12$plasmids<-h12$`True Contigs`-1
+h6<-select(h6,x)
+h6$time<-6
+h6$plasmids<-h6$`True Contigs`-1
+
+h3<-select(h3,x)
+h3$time<-3
+h3$plasmids<-h3$`True Contigs`-1
+
+
+h_final<-select(h_final,x)
+h_final$time<-'final'
+h_final$plasmids<-h_final$`True Contigs`-1
+
+
+h_all<-rbind(h3,h6,h12,h_final)
+h_all$`N incomplete Plasmids`[h_all$`N incomplete Plasmids` =='na']<-NA
+
+h_all$g<-paste(h_all$Codename,h_all$RBK,sep = '_')
+h_all<-filter(h_all,g!='easymag_10')
+
+table(h_all$time,h_all$complete)
+table(h_all$time,h_all$`Chromosome complete`)
+table(h_all$time,h_all$`N incomplete Plasmids`)
+
+kruskal.test(h_all$`N incomplete Plasmids` ~ h_all$time)
+
+h_all %>% group_by(time,Codename) %>% summarise(s=sum(plasmids),i=sum(`N incomplete Plasmids`,na.rm = T))
+```
+
+
+
+
+```{r Comparison with long read assembly (Table 2))}
+##dnadiff
+library1<-read_tsv('./data/dnadiff_lr_sr/library1')
+library1$library<-1
+l1_bases<-read_tsv('./data/read_counts/library1')
+library1<-left_join(library1,l1_bases,by=c("sample"="file"))
+
+library2<-read_tsv('./data/dnadiff_lr_sr/library2')
+library2$library<-2
+l2_bases<-read_tsv('./data/read_counts/library2')
+library2<-left_join(library2,l2_bases,by=c("sample"="file"))
+
+library3<-read_tsv('./data/dnadiff_lr_sr/library3')
+library3$library<-3
+l3_bases<-read_tsv('./data/read_counts/library3')
+library3<-left_join(library3,l3_bases,by=c("sample"="file"))
+
+
+library5<-read_tsv('./data/dnadiff_lr_sr/library5')
+library5$library<-5
+l5_bases<-read_tsv('./data/read_counts/library5')
+library5<-left_join(library5,l5_bases,by=c("sample"="file"))
+
+
+all<-rbind(library1,library2,library3,library5)
+
+all$qab_pc<-str_extract_all(all$abq, "\\([^()]+\\)")
+all$qab_pc<-str_replace_all(all$qab_pc,'[())]','')
+all$qab_pc<-str_replace_all(all$qab_pc,'[%]','')
+all$rab_pc<-str_extract_all(all$abr, "\\([^()]+\\)")
+all$rab_pc<-str_replace_all(all$rab_pc,'[()]','')
+all$rab_pc<-str_replace_all(all$rab_pc,'[%]','')
+all$abq<-str_replace_all(all$abq,'[(].*','')
+all$abr<-str_replace_all(all$abr,'[(].*','')
+all<-filter(all,!is.na(all$gsnps))
+all<-select(all,-bases)
+
+
+all<-all[-9,]
+
+all$cov<-all$sum_len /5e6
+all<-filter(all,cov >=5)
+all<-select(all,library,sample,gsnps,gindels,rab_pc,aident)
+names(all)<-c('Library','Sample','gSNPs','gIndels','% reference bases aligned','Average Identity')
+all %>%  kable() %>% kable_styling(bootstrap_options = c("condensed"),full_width = F)
+
+```
+
+
+
+
+#Comparison of read preparation/assembly methods
+We compared filtering strategies across the four libraries with non-duplicated samples (1,2,3 and 5, supplementary table). Guppy and Guppy with Deepbinner to reclaim unclassified reads provided the most complete assemblies (where all components circularised, 34/45 and 33/45 respectively). Adding quality and length based filtering to Guppy + Deepbinner resulted in a slightly worse performance (31/45). Random sub-sampling to 150Mb with Rasusa provided the least complete asseblies (30/45) although in some cases the sampling threshold was more than the total number of sequenced bases for the sample. Using only the Guppy and Guppy+Deepbinner read filtering strategies we additionally compared assemblies created with Unicycler's --mode set to 'normal' and 'bold'. As expected, there were more complete assemblies using bold 58/90 compared to nomal mode 50/90, though this was not statistically significant p=0.28. The ratio of completeness between bold and normal modes was nearly identical between assemblies constructed with the two filtering strategies (table S1). 
+
+We additionally computed long read only assemblies using Flye. Overall, these assemblies had a high average identity to the reference hybrid sequences `r t.ref("lr_hybrid")`. When compiled using data as demultiplexed by Guppy alone however, most assemblies contained replicons in the Flye assemblies which were absent from the hybrid assemblies. Using blast in Bandage we confirmed that these replicons were also not present in the short read only assemblies however were able to identify that some of them likely represented between barcode contamination (Figure Sx). In order to try to reduce this, we created further assemblies using only reads where both Deepbinner and Guppy agreed on the barcode assignment. Whilst this greatly improved the assemblies and most (but not all) spurious replicons were removed, structural differences compared to the hybrid references remained in several assemblies (Figure Sx). We hypothesised that this might be an issue with rapid barcoding but saw the same signal in data multiplexed with the native barcoding kit in other studies (Figure Sx).
+
+#Discussion
+
+In this study we have demonstrated that, for the purposes of creating ONT reads for hybrid assembly, there is unlikely to be benefit in sequencing run periods extending beyond 24 hours; indeed for the majority of isolates 12 hours is likely to be sufficient. We have shown that after utilising the ONT flowcell washkit, between library contamination is minimal, and is unlikely to have an important effect on subsequent hybrid assemblies. This appears to be true even when the same barcodes are used for successive libraries. Despite signficantly shortened run-times and reusing flowcells, we were able to completely assemble the vast majority of plasmids. This marks a significant milestone for ONT sequencing for the purposes of hybrid assembly.
+
+Previous studies have demonstrated successful completion of 12 genomes on a single flowcell; here we have demonstrated this can be increased to at least 22. Current per sample sequencing cost based on ONT's quoted figures of \$500 per flowcell and \$150 for library and barcoding is $54. In the most conservative interpretation of this study we have shown an approximately 20% per sample reduction in cost to \$43. This would apply were the downstream analysis demanded complete circularistion of all contigs. We envisage that for most current use cases however, particularly plasmid genomics, the standard of data produced in the majority of our assemblies would be sufficient to answer the biological questions posed. For example there were only three isolates with plasmid associated AMR genes which were not contained on circularised plasmids using run times of 24 hours. Even with ultra-short run times of 12 hours (1/6th of the total run-time that is currently standard in our lab and others) we were able to circularise the vast majority of plasmids (and most chromosomes). 
+
+If as seems plausible from our data, 12 hours is a viable run-time for most research questions and we assume a useful period of 72 hours per flowcell, then sequencing costs would be further reduced to approximately \$20 per isolate (a 63\% reduction on current costs). This might be limited by the effect of repeated washing of the flowcell and deterioration of pores over time, however even in library 4 in our study (which used a 48 hour old flowcell which had been washed twice), 8/12 chromosomes and 34/36 plasmids were complete at 12 hours. We envisage that after stopping runs at 12 or 24 hours, invesitgators would be able to intelligently select the few isolates which require further sequencing and avoid wasting valuable pore time where complete assemblies have already been acquired. We would caution however that, in this study, increasing run-times did not usually lead to improved assemblies. This is consistent with recent data from a different study in our laboratory which demonstrated that in some cases random sub-sampling of reads can even improve assemblies.
+
+In an ideal world one would want to use a unique set of barcodes for each library run on a single flowcell. At present however there are only 12 barcodes available in ONT's rapid barcoding kit which has a substantially easier and less time consuming protocol compared to the Native Barcoding Kit for example. The new ONT wash-kit is highely effective at removing DNA from a flowcell and between library contamination does not appear to occur at a level which effects subsequent assemblies. Furthermore the number of SNPs and Indels between alignments of the isolates sequenced in different libraries on the same flowcell (using the same set of barcodes but reassigned to different isolates) was similar to that seen comparing Illumina/ONT and Illumina/PacBio assemblies of a single isolate. Our assembly of the MGH757878 reference diverged by a similar number of SNPs compared to the published sequence and that in a recent study. To our knowledge there is limited data available on the variation produced by succesive cycles of culturing, DNA extraction and sequencing the same isolate using ONT technology and further investigation of this using reference sequences seems warrented. Based on our data, using the same barcodes for consecutive libraries on the same flowcell is likely to be acceptable when generating long reads for hybrid assembly.
+
+Multiplexed ONT sequencing holds the promise of allowing complete and accurate genomes to be obtained from a single platform. Our results suggest that both in silico demultiplexing and laboratory kits need to improve before this is a reliable alternative to hybrid sequencing. Such development will be critical to ensuring the viability of ONT sequencing, particularly in routine clinical settings in the future. Ryan Wick has previously hypothesised that the bimodal distribution observed in quality scores of reads delineates 'good' from 'junk' reads. We speculate that the truth may be worse than this and reads with low identity to Illumina reads in fact represent cross-barcode contamination. The long read assembly problem is somewhat improved by consensus demultiplexing using two tools however this is resource intensive, wastes a lot of sequencing data and is still not completely reliable. Hybrid assemblies are much less vunerable to cross-barcode contamination which appears to be effectively removed by Unicycler's process of mapping long reads to the short read assembly. Whilst reasonably high quality long read only assemblies can be achieved by running a single isolate per flowcell with subsequent polishing steps, the cost of this is significantly higher than hybrid sequencing. 
+
+Different de-multiplexing, filtering and assembly parameters can produce different assemblies for the same input data and we thus utilised several combinations for comparison. Whilst our 'bold mode' assembly of the reference was very similar to the published sequence, further benchmarking of the effect of this and other parameters is required but beyond the scope of this project. We included only a single Klebsiella reference strain meaning that the ground truth for most assemblies we performed was unknown, though notably in our first library overall structures did not change with an additional 24 hours of sequencing. An additional limitation is that we used a different extraction method for library one compared to all other libraries however the similar results obtained also demonstrate fully automated DNA extraction as a viable component of high-throughput hybrid sequencing. Our finding that subsampling/filtering the datasets generally did not improve assembly quality should be interepretted with caution because of the already relatively low starting coverage compared to that in studies which have shown it to be a useful strategy; we agree with the general principle that beyond a critical coverage more data rarely leads to better hyrbid assemblies.
+
+In conclusion we have demonstrated that high quality hybrid assemblies can be generated with much shorter sequencing times than are currently standard. The new ONT wash kit appears highely effective even to the point where reuse of the same barcodes on a flowcell seems acceptable when acquiring long reads for hybrid assemblies. Reusing flowcells for multiple libraries produces substantial potential per isolate cost reductions. Ultimately the opportunity to take advantage of this and conduct large-scale studies incorporating hybrid assembly is likely to help better inform future efforts to tackle some of the most important human pathogens.
+
+
+# References 
+
+
+
+
+
